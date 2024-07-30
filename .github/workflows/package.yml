@@ -1,134 +1,51 @@
-default:
-  image: python:3.6
+name: Build and Package
 
-# Change pip's cache directory to be inside the project directory since we can
-# only cache local items.
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  BUILD_VERSION: "$CI_COMMIT_BRANCH"
-  BUILD_ID: "$CI_PIPELINE_ID"
-  RELEASE_VERSION: "$BUILD_VERSION.$BUILD_ID"
-  FORCE_BUILD: "false"
-  FORCE_PROVENANCE: "false"
-cache:
-  paths:
-    - .cache/pip
-    - venv/
-    - venv-prov/
-    - venv-centos/
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
-stages:
-  - build
-  - generate-provenance
-build-ubuntu:
-  stage: build
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $FORCE_BUILD == "true"
-  before_script:
-    - python --version
-    - pip install virtualenv
-    - virtualenv venv
-    - source venv/bin/activate
-    - python --version
-    - pip install -r ./src/requirements.txt
-    - pip install pycrypto
-  script:
-    - echo "Build Linux package - RELEASE_VERSION=$RELEASE_VERSION"
-    - export LINUX_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$RELEASE_VERSION-Ubuntu.tar.gz"
-    - echo "LINUX_PACKAGE=$LINUX_PACKAGE"
-    - tar -czvf $LINUX_PACKAGE -C dist/ .
-  tags:
-    - linux
-  artifacts:
-    name: "$CI_JOB_NAME-binaries"
-    paths:
-      - artifacts/rpm/*.rpm
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-provenance:
-  stage: generate-provenance
-  rules:
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/
-    - if: $FORCE_PROVENANCE == "true"
-  before_script:
-    # Prepare Python virtualenv
-    - python --version
-    - pip install virtualenv
-    - virtualenv venv-prov
-    - source venv-prov/bin/activate
-    - pip install -r ./provenanceData/requirements.txt
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
 
-    # Download the SRP CLI which we use to create source provenance
-    - mkdir /srp-tools
-    - wget --quiet --output-document /srp-tools/srp  https://artifactory.eng.vmware.com/artifactory/helix-docker-local/cli/srpcli/0.2.20220610114718-f3587c2-16.1/linux/srp
-    - chmod +x /srp-tools/srp
-    - /srp-tools/srp --version
-  script:
-    # create local auth configuration using variables from the CICD
-    - /srp-tools/srp config auth --client-id=${SRP_CLIENT_ID} --client-secret=${SRP_CLIENT_SECRET}
-    # force an update to the srpcli
-    - /srp-tools/srp update --yes
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'  # Adjust to the required Python version
 
-    # Start SRP provenance generation and submission
-    - export CURRENT_TIME_STRING=`date +%Y%m%d%H%M%S`
-    - export OBJ_UID="uid.obj.build.gitlab(namespace='${CI_PROJECT_NAMESPACE}',project='${CI_PROJECT_NAME}',pipeline_id='${CI_PIPELINE_ID}')"
-    - export PROVENANCE_FRAGMENT_UID="uid.mtd.provenance_2_5.fragment(obj_uid=${OBJ_UID},revision='${CURRENT_TIME_STRING}')"
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dh-make devscripts build-essential python3-setuptools python3-wheel alien rpm
 
-    - echo "SRP_UID=${OBJ_UID}"
-    - echo "PROVENANCE_FRAGMENT_UID=${PROVENANCE_FRAGMENT_UID}"
-    # This app pulls dependencies from a gitlab project with private access.  In order to do that, you must put
-    # credentials into the ~/.netrc file as described in
-    # https://gitlab.eng.vmware.com/srp/helix/core/srpclient/-/blob/main/README.md#development-environment-setup
-    - echo "machine gitlab.eng.vmware.com login $CI_REGISTRY_USER password $CI_REGISTRY_PASSWORD" > ~/.netrc
+    - name: Build source distribution
+      run: python3 setup.py sdist
 
-    # RUN srp cli command to generate basic source provenance for this git clone
-    - mkdir -p provenance
-    - |
-      /srp-tools/srp provenance source \
-      --scm-type git \
-      --name "VMware NSX Migration for VMware Cloud Director" \
-      --path ./ \
-      --saveto ./provenance/source.json \
-      --comp-uid "$OBJ_UID" \
-      --build-number "$BUILD_ID" \
-      --version $BUILD_VERSION \
-      --all-ephemeral true \
-      --build-type release
+    - name: Create Debian package
+      run: |
+        PACKAGE_NAME=$(python3 setup.py --name)
+        PACKAGE_VERSION=$(python3 setup.py --version)
+        dh_make -s -y -f dist/${PACKAGE_NAME}-${PACKAGE_VERSION}.tar.gz
+        dpkg-buildpackage -us -uc
 
-    - echo "------------------ SOURCE PROVENANCE -----------------------------------"
-    - cat ./provenance/source.json
-    - echo "------------------------------------------------------------------------"
+    - name: Convert Debian to RPM
+      run: |
+        PACKAGE_NAME=$(python3 setup.py --name)
+        PACKAGE_VERSION=$(python3 setup.py --version)
+        sudo alien --to-rpm ../${PACKAGE_NAME}_${PACKAGE_VERSION}-1_all.deb
+        mkdir -p artifacts/rpm
+        mv *.rpm artifacts/rpm/
 
-    - echo "Fetching all dependencies under the observer"
-    - python ./provenanceData/generateProvenanceData.py
-    - mv ./provenanceData/network_provenance_data.json ./provenance/network.json
-
-    - echo "------------------ NETWORK PROVENANCE ---------------------------------"
-    -  cat ./provenance/network.json
-    - echo "-----------------------------------------------------------------------"
-
-    # merge the source and network provenance documents
-    - |
-      /srp-tools/srp provenance merge \
-      --source ./provenance/source.json \
-      --network ./provenance/network.json \
-      --saveto ./provenance/merged.json
-
-    - echo "------------------ MERGED PROVENANCE ----------------------------------"
-    - cat ./provenance/merged.json
-    - echo "-----------------------------------------------------------------------"
-
-    # submit the merged provenance to SRP
-    - |
-      /srp-tools/srp metadata submit \
-      --uid "$PROVENANCE_FRAGMENT_UID" \
-      --path ./provenance/merged.json
-
-  tags:
-    - linux
-  artifacts:
-    name: "$CI_JOB_NAME-provenance"
-    paths:
-      - ./provenance/merged.json
+    - name: Upload RPM artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: rpm-packages
+        path: artifacts/rpm/*.rpm
