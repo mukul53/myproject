@@ -19,12 +19,12 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.x'  # Adjust to the required Python version
+        python-version: '3.6'  # Adjust to the required Python version
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y dh-make devscripts build-essential python3-setuptools python3-wheel alien
+        sudo apt-get install -y dh-make devscripts build-essential python3-setuptools python3-wheel alien rpm
 
     - name: Build source distribution
       run: python3 setup.py sdist
@@ -36,7 +36,7 @@ jobs:
         dh_make -s -y -f dist/${PACKAGE_NAME}-${PACKAGE_VERSION}.tar.gz
         dpkg-buildpackage -us -uc
 
-    - name: Convert to RPM
+    - name: Convert Debian to RPM
       run: |
         PACKAGE_NAME=$(python3 setup.py --name)
         PACKAGE_VERSION=$(python3 setup.py --version)
@@ -49,3 +49,4 @@ jobs:
       with:
         name: rpm-packages
         path: artifacts/rpm/*.rpm
+
