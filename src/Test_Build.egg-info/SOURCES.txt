@@ -1,0 +1,8 @@
+setup.py
+src/Test_Build.egg-info/PKG-INFO
+src/Test_Build.egg-info/SOURCES.txt
+src/Test_Build.egg-info/dependency_links.txt
+src/Test_Build.egg-info/entry_points.txt
+src/Test_Build.egg-info/requires.txt
+src/Test_Build.egg-info/top_level.txt
+src/myproject/__init__.py
