@@ -10,12 +10,6 @@ variables:
   RELEASE_VERSION: "$BUILD_VERSION.$BUILD_ID"
   FORCE_BUILD: "false"
   FORCE_PROVENANCE: "false"
-
-# Pip's cache doesn't store the python packages
-# https://pip.pypa.io/en/stable/reference/pip_install/#caching
-#
-# If you want to also cache the installed packages, you have to install
-# them in a virtualenv and cache it as well.
 cache:
   paths:
     - .cache/pip
@@ -26,35 +20,6 @@ cache:
 stages:
   - build
   - generate-provenance
-
-build-windows:
-  stage: build
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $FORCE_BUILD == "true"
-  before_script:
-#    - choco install python --version=3.7.9 -y
-#    - $env:PATH+=";C:\Python37;C:\Python37\Scripts"
-#    - python -m pip install pipenv
-#    - pipenv update
-    - $Env:PATH += ";C:\Users\vmware\AppData\Local\Programs\Python\Python38\Scripts\"
-    - $Env:path
-  script:
-    - echo "Build Windows package - RELEASE_VERSION=$Env:RELEASE_VERSION"
-    - $Env:WINDOWS_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$Env:RELEASE_VERSION.zip"
-    - echo "WINDOWS_PACKAGE=$Env:WINDOWS_PACKAGE"
-    - pyinstaller src\vcdNSXMigrator.spec
-    - Copy-Item -Path "C:\Program Files\OpenSSL-Win64\bin\*" -Destination "dist\vcdNSXMigrator" -PassThru -Recurse
-    - Compress-Archive -Path dist\vcdNSXMigrator -DestinationPath $Env:WINDOWS_PACKAGE
-  tags:
-    - windows
-  artifacts:
-    name: "$Env:CI_JOB_NAME-binaries"
-    paths:
-      - VMware-NSX-Migration-for-VMware-Cloud-Director-*.zip
-
 build-ubuntu:
   stage: build
   rules:
@@ -68,51 +33,19 @@ build-ubuntu:
     - virtualenv venv
     - source venv/bin/activate
     - python --version
-    - pip install -r ./requirements_build.txt
     - pip install -r ./src/requirements.txt
     - pip install pycrypto
   script:
     - echo "Build Linux package - RELEASE_VERSION=$RELEASE_VERSION"
     - export LINUX_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$RELEASE_VERSION-Ubuntu.tar.gz"
     - echo "LINUX_PACKAGE=$LINUX_PACKAGE"
-    - python -m PyInstaller src/vcdNSXMigrator.spec
     - tar -czvf $LINUX_PACKAGE -C dist/ .
   tags:
     - linux
   artifacts:
     name: "$CI_JOB_NAME-binaries"
     paths:
-      - VMware-NSX-Migration-for-VMware-Cloud-Director-*.tar.gz
-
-build-centos:
-  image: centos/python-36-centos7:latest
-  stage: build
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $FORCE_BUILD == "true"
-  before_script:
-    - python --version
-    - pip install virtualenv
-    - python3 -m virtualenv venvnew
-    - source venvnew/bin/activate
-    - python --version
-    - pip install -r ./requirements_build.txt
-    - pip install -r ./src/requirements.txt
-    - pip install pycrypto
-  script:
-    - echo "Build Linux package - RELEASE_VERSION=$RELEASE_VERSION"
-    - export LINUX_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$RELEASE_VERSION-Centos.tar.gz"
-    - echo "LINUX_PACKAGE=$LINUX_PACKAGE"
-    - python -m PyInstaller src/vcdNSXMigrator.spec
-    - tar -czvf $LINUX_PACKAGE -C dist/ .
-  tags:
-    - centos
-  artifacts:
-    name: "$CI_JOB_NAME-binaries"
-    paths:
-      - VMware-NSX-Migration-for-VMware-Cloud-Director-*.tar.gz
+      - artifacts/rpm/*.rpm
 
 provenance:
   stage: generate-provenance
@@ -199,4 +132,3 @@ provenance:
     name: "$CI_JOB_NAME-provenance"
     paths:
       - ./provenance/merged.json
-
