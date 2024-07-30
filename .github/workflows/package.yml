@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: 'python-3.8.6-linux-20.04-x64.tar.gz'  # Adjust to the required Python version
+        python-version: '20.04'  # Adjust to the required Python version
 
     - name: Install dependencies
       run: |
